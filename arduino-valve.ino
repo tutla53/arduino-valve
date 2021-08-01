@@ -9,6 +9,9 @@
 #include<Wire.h>
 #include <Adafruit_PWMServoDriver.h>
 
+#define USE_COUNT 0
+#define USE_FILTER_5HZ 0 /*set 0 to use 10Hz filter*/
+
 #define tab   Serial.print("\t")
 #define enter Serial.println()
 
@@ -63,11 +66,13 @@ Adafruit_PWMServoDriver pwm1 = Adafruit_PWMServoDriver(0x40);
 
 /*Global Variable*/
 /*Timer*/
-const uint8_t dt = 10; /*Sampling Time in ms*/
-const uint8_t T = 10;
-const uint16_t n = (1000 / dt) * T;
-unsigned int count = 0;
-uint32_t t1 = 0, t2 = 0, t = 0,t3=0,t4=0;
+#if  USE_COUNT
+  const uint8_t dt = 10; /*Sampling Time in ms*/
+  const uint8_t T = 10;
+  const uint16_t n = (1000 / dt) * T;
+  unsigned int count = 0;
+  uint32_t t1 = 0, t2 = 0, t = 0,t3=0,t4=0;
+#endif
 
 /*PID*/                                 /*3*/   /*2*/    /*1*/
 const float Kp[3] = {230,230,230};     /*230*/ /*230*/  /*250*/
@@ -95,22 +100,31 @@ uint8_t motor[3]     = {9,6,5}; /*Motor Port*/
 uint8_t servo[3] = {4,8,12};
 
 /*Communication*/
-char incByte = 0;
-bool get_data = 0,flag = 0;
-const float inc = 0.02;
-
-/*Filter coefficient with wc = 5 Hz*/
-const float b_1[4] = {2.8982*pow(10,-3), 8.6946*pow(10,-3), 8.6946*pow(10,-3),  2.8982*pow(10,-3)};
-const float a_1[3] = {2.37409, -1.92936, 0.53208};
-
-/*Filter coefficient with wc = 10 Hz*/
-const float b_2[4] = {0.018099, 0.054297, 0.054297, 0.018099};
-const float a_2[3] = {1.76004, -1.18289, 0.27806};
+bool flag = 0;
 
 uint16_t d2p(uint8_t deg) {
   uint16_t pulse;
   pulse = map(deg, 0, 180, min_pulse, max_pulse);
   return pulse;
+}
+
+void setup_filter(){
+/*Filter*/
+
+#if USE_FILTER_5HZ
+  /*Filter coefficient with wc = 5 Hz*/
+  const float b[4] = {2.8982*pow(10,-3), 8.6946*pow(10,-3), 8.6946*pow(10,-3),  2.8982*pow(10,-3)};
+  const float a[3] = {2.37409, -1.92936, 0.53208};
+#else
+  /*Filter coefficient with wc = 10 Hz*/
+  const float b[4] = {0.018099, 0.054297, 0.054297, 0.018099};
+  const float a[3] = {1.76004, -1.18289, 0.27806};
+#endif
+
+  for (int i =0;i<3;i++){
+    input[i].set_coefficient(a,b);
+    output[i].set_coefficient(a,b);
+  }
 }
 
 void TimerInit(){
@@ -128,6 +142,9 @@ void TimerInit(){
 }
 
 void read_input(){
+  char incByte = 0;
+  const float inc = 0.02;
+  
   if (Serial.available() > 0) {
     incByte = Serial.read();
     if(incByte == 'a'){
@@ -163,11 +180,7 @@ void setup() {
   for(int i = 0;i<3;i++){
     if(start_chamber[i]){
       pwm1.setPWM(servo[i], 0, d2p(pos[i]));
-    
-      /*Filter*/
-      input[i].set_coefficient(a_1, b_1);
-      output[i].set_coefficient(a_1,b_1);
-    
+          
       /*Sensor*/  
       pinMode(MPX[i], INPUT);
       pinMode(motor[i], OUTPUT);
@@ -177,6 +190,7 @@ void setup() {
     }
   }
   TimerInit();
+  setup_filter();
   pinMode(en_servo_pin,OUTPUT);
   disable_servo;
   delay(500);
@@ -229,15 +243,11 @@ ISR(TIMER1_COMPA_vect){
       else if (pos[i] < min_angle) {
          pos[i] = 0;
         I[i] -= err[i];
-      }  
+      }
+      
+      /*Execute*/
+      pwm1.setPWM(servo[i], 0, d2p(pos[i]));    
     }
-   }
-    
-   /*Execute*/
-   for(int i=0;i<3;i++){
-    if(start_chamber[i]){
-        pwm1.setPWM(servo[i], 0, d2p(pos[i]));  
-    }   
-   }
+  }
   flag = 1;
 }
