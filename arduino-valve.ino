@@ -1,4 +1,4 @@
-/* Date: 24 Juni 21
+/* Date: 1 August 21
    Prototype Code
    Desc: - Control system with desired value
          - Pressure Range: 0.2 - 0.7 bar                    
@@ -21,7 +21,7 @@
 #define min_angle     0     /*Min Servo Angle*/
 #define en_servo_pin  4     /*Enable Servo*/
 #define motor_pwm     255   /*Compressor MOSFET PWM*/
-#define scale         10    /*Serial Print Scale*/
+#define scale         10    /*Serial Plotter Scale*/
 #define enable_servo  digitalWrite(en_servo_pin,0)
 #define disable_servo digitalWrite(en_servo_pin,1)
 
@@ -32,7 +32,7 @@ class Butterworth {
     float y_out[4] = {0.0000, 0.0000, 0.0000, 0.0000};
     float y_in[4]  = {0.0000, 0.0000, 0.0000, 0.0000};
 
-    void set_coefficient(float co_a[3], float co_b[4]) {
+    void set_coefficient(const float co_a[3], const float co_b[4]) {
       for (int i = 0; i < 3; i++) {
         a[i] = co_a[i];
       }
@@ -79,7 +79,7 @@ float   err[3]    = {0,0,0};
 float   pre_err[3]= {0,0,0};
 float   sig[3]    = {0,0,0};
 uint8_t pos[3]    = {0,0,0};
-bool start_chamber[3]= {1,0,0};
+const bool    start_chamber[3]= {1,1,1};
 
 /*Sensor*/
 uint16_t adc[3] = {0,0,0};
@@ -97,15 +97,15 @@ uint8_t servo[3] = {4,8,12};
 /*Communication*/
 char incByte = 0;
 bool get_data = 0,flag = 0;
-String val = "";
+const float inc = 0.02;
 
 /*Filter coefficient with wc = 5 Hz*/
-float b_1[4] = {2.8982*pow(10,-3), 8.6946*pow(10,-3), 8.6946*pow(10,-3),  2.8982*pow(10,-3)};
-float a_1[3] = {2.37409, -1.92936, 0.53208};
+const float b_1[4] = {2.8982*pow(10,-3), 8.6946*pow(10,-3), 8.6946*pow(10,-3),  2.8982*pow(10,-3)};
+const float a_1[3] = {2.37409, -1.92936, 0.53208};
 
 /*Filter coefficient with wc = 10 Hz*/
-float b_2[4] = {0.018099, 0.054297, 0.054297, 0.018099};
-float a_2[3] = {1.76004, -1.18289, 0.27806};
+const float b_2[4] = {0.018099, 0.054297, 0.054297, 0.018099};
+const float a_2[3] = {1.76004, -1.18289, 0.27806};
 
 uint16_t d2p(uint8_t deg) {
   uint16_t pulse;
@@ -127,6 +127,30 @@ void TimerInit(){
   interrupts();
 }
 
+void read_input(){
+  if (Serial.available() > 0) {
+    incByte = Serial.read();
+    if(incByte == 'a'){
+        motor_status = 1;
+        I[0] = 0; I[1] = 0; I[2] = 0;
+    }
+    else if(incByte == 's'){
+        motor_status = 0;
+        I[0] = 0; I[1] = 0; I[2] = 0;
+    }
+    else{
+      if(motor_status){
+        if(incByte == 'c')      set_point[0] += inc;
+        else if(incByte == 'd') set_point[0] -= inc;
+        else if(incByte == 'g') set_point[1] += inc;
+        else if(incByte == 'h') set_point[1] -= inc;
+        else if(incByte == 'y') set_point[2] += inc;
+        else if(incByte == 'x') set_point[2] -= inc;          
+      }
+    }
+  }
+}
+
 void setup() {
   /*Serial Communication*/
   Serial.begin(115200);
@@ -135,10 +159,6 @@ void setup() {
   pwm1.begin();
   pwm1.setOscillatorFrequency(27000000);
   pwm1.setPWMFreq(servo_freq);
-
-  start_chamber[0]= 1;
-  start_chamber[1]= 0;
-  start_chamber[2]= 0;
   
   for(int i = 0;i<3;i++){
     if(start_chamber[i]){
@@ -163,38 +183,8 @@ void setup() {
 }
 
 void loop() {
+  read_input();
   
-  if (Serial.available() > 0) {
-    incByte = Serial.read();
-    if (incByte != '\n') {
-      if(isDigit(incByte)||(incByte=='.')){
-        val += (char)incByte; 
-      }
-      else if(incByte == 'a'){
-        motor_status = 1;
-        I[0] = 0;
-        I[1] = 0;
-        I[2] = 0;
-      }
-      else if(incByte == 's'){
-        motor_status = 0;
-        I[0] = 0;
-        I[1] = 0;
-        I[2] = 0;
-      }      
-    }
-    else {
-      for(int i=0;i<3;i++){
-        set_point[i] = val.toFloat();
-        if (set_point[i] > max_pressure) set_point[i] = max_pressure;
-        if (set_point[i] < min_pressure) set_point[i] = min_pressure;  
-      }      
-      get_data = 1;
-      count = 0;
-      val = "";
-    }
-  }
-
   for(int i = 0;i<3;i++){
     if(motor_status && start_chamber[i]){
       analogWrite(motor[i],motor_pwm);
@@ -207,11 +197,10 @@ void loop() {
   }
 
   if(flag){
-    Serial.print(set_point[0]*scale);  tab;
-    Serial.print(Pf[0]*scale);         tab;
-    Serial.print(max_pressure*scale);  tab;
-    Serial.print(min_pressure*scale);
-    enter;   
+    for(int i=0;i<3;i++){
+      Serial.print(set_point[i]*scale);  tab;
+    }
+    enter; 
     flag = 0;
   }
 }
@@ -246,9 +235,9 @@ ISR(TIMER1_COMPA_vect){
     
    /*Execute*/
    for(int i=0;i<3;i++){
-      if(start_chamber[i]){
+    if(start_chamber[i]){
         pwm1.setPWM(servo[i], 0, d2p(pos[i]));  
-      }   
-    }
+    }   
+   }
   flag = 1;
 }
