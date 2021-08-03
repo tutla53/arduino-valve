@@ -9,8 +9,8 @@
 #include<Wire.h>
 #include <Adafruit_PWMServoDriver.h>
 
-#define USE_COUNT 0
-#define USE_FILTER_5HZ 0 /*set 0 to use 10Hz filter*/
+#define USE_COUNT       0
+#define USE_FILTER_5HZ  0 /*set 0 to use 10Hz filter*/
 
 #define tab   Serial.print("\t")
 #define enter Serial.println()
@@ -24,7 +24,7 @@
 #define min_angle     0     /*Min Servo Angle*/
 #define en_servo_pin  4     /*Enable Servo*/
 #define motor_pwm     255   /*Compressor MOSFET PWM*/
-#define scale         10    /*Serial Plotter Scale*/
+#define scale         1    /*Serial Plotter Scale*/
 #define enable_servo  digitalWrite(en_servo_pin,0)
 #define disable_servo digitalWrite(en_servo_pin,1)
 
@@ -93,8 +93,8 @@ float    P[3]   = {0,0,0};
 float    Pf[3]  = {0,0,0};
 
 /*Compressor*/
-bool    motor_status = 0;
-uint8_t motor[3]     = {9,6,5}; /*Motor Port*/
+bool    motorOn   = 0;
+uint8_t motor[3]  = {9,6,5}; /*Motor Port*/
 
 /*Servo Port*/
 uint8_t servo[3] = {4,8,12};
@@ -108,7 +108,7 @@ uint16_t d2p(uint8_t deg) {
   return pulse;
 }
 
-void setup_filter(){
+void FilterInit(){
 /*Filter*/
 
 #if USE_FILTER_5HZ
@@ -148,21 +148,39 @@ void read_input(){
   if (Serial.available() > 0) {
     incByte = Serial.read();
     if(incByte == 'a'){
-        motor_status = 1;
-        I[0] = 0; I[1] = 0; I[2] = 0;
+      motorOn = 1;
+      I[0] = 0; I[1] = 0; I[2] = 0;
+      for(int i=0;i<3;i++){
+        if(start_chamber[i]){
+          analogWrite(motor[i],motor_pwm);
+          enable_servo;
+        }
+      }
     }
     else if(incByte == 's'){
-        motor_status = 0;
-        I[0] = 0; I[1] = 0; I[2] = 0;
+      motorOn = 0;
+      I[0] = 0; I[1] = 0; I[2] = 0;
+      for(int i=0;i<3;i++){
+        analogWrite(motor[i],0);
+        set_point [i] = min_pressure; 
+        disable_servo; 
+      }
     }
     else{
-      if(motor_status){
-        if(incByte == 'c')      set_point[0] += inc;
-        else if(incByte == 'd') set_point[0] -= inc;
-        else if(incByte == 'g') set_point[1] += inc;
-        else if(incByte == 'h') set_point[1] -= inc;
-        else if(incByte == 'y') set_point[2] += inc;
-        else if(incByte == 'x') set_point[2] -= inc;          
+      if(motorOn){
+        switch(incByte){
+          case 'c': set_point[0] += inc; break;
+          case 'd': set_point[0] -= inc; break;          
+          case 'g': set_point[1] += inc; break;
+          case 'h': set_point[1] -= inc; break;
+          case 'y': set_point[2] += inc; break;
+          case 'x': set_point[2] -= inc; break;                                             
+        }         
+      }
+      /*set point limit*/
+      for (int i=0;i<3;i++){
+        if(set_point[i] > max_pressure) set_point[i] = max_pressure;
+        else if(set_point[i] < min_pressure) set_point[i] = min_pressure;
       }
     }
   }
@@ -176,6 +194,9 @@ void setup() {
   pwm1.begin();
   pwm1.setOscillatorFrequency(27000000);
   pwm1.setPWMFreq(servo_freq);
+
+  TimerInit();
+  FilterInit();
   
   for(int i = 0;i<3;i++){
     if(start_chamber[i]){
@@ -189,8 +210,7 @@ void setup() {
       analogWrite(motor[i],0);
     }
   }
-  TimerInit();
-  setup_filter();
+    
   pinMode(en_servo_pin,OUTPUT);
   disable_servo;
   delay(500);
@@ -198,23 +218,17 @@ void setup() {
 
 void loop() {
   read_input();
-  
-  for(int i = 0;i<3;i++){
-    if(motor_status && start_chamber[i]){
-      analogWrite(motor[i],motor_pwm);
-      enable_servo;
-    }
-    else{
-      analogWrite(motor[i],0);
-      set_point [i] = min_pressure;  
-    } 
-  }
 
+  /*Print Data*/
   if(flag){
     for(int i=0;i<3;i++){
       Serial.print(set_point[i]*scale);  tab;
     }
-    enter; 
+    enter;
+  /*
+    Serial.print(Pf[0]*scale);  tab;
+    Serial.print(Pf[1]*scale);  enter;
+  */
     flag = 0;
   }
 }
