@@ -24,7 +24,7 @@
 #define min_angle     0     /*Min Servo Angle*/
 #define en_servo_pin  4     /*Enable Servo*/
 #define motor_pwm     255   /*Compressor MOSFET PWM*/
-#define scale         1    /*Serial Plotter Scale*/
+#define scale         1     /*Serial Plotter Scale*/
 #define enable_servo  digitalWrite(en_servo_pin,0)
 #define disable_servo digitalWrite(en_servo_pin,1)
 
@@ -143,7 +143,7 @@ void TimerInit(){
 
 void read_input(){
   char incByte = 0;
-  const float inc = 0.02;
+  const float inc = 0.01;
   
   if (Serial.available() > 0) {
     incByte = Serial.read();
@@ -220,11 +220,15 @@ void loop() {
   read_input();
 
   /*Print Data*/
+  
   if(flag){
     for(int i=0;i<3;i++){
       Serial.print(set_point[i]*scale);  tab;
+      Serial.print(Pf[i]*scale); tab;
     }
     enter;
+
+   //Serial.print(adc[0]); enter;
   /*
     Serial.print(Pf[0]*scale);  tab;
     Serial.print(Pf[1]*scale);  enter;
@@ -239,7 +243,7 @@ ISR(TIMER1_COMPA_vect){
     if(start_chamber[i]){
       /*Read*/
       adc[i] = analogRead(MPX[i]);
-      P[i] = 5.7*(adc[i]/1000.0)-0.1926; /*(bar)*/
+      P[i] = 5.47*(adc[i]/1000.0)-0.148; /*(bar)*/
       Pf[i] = input[i].filter(P[i]);
   
       /*Calculate PI Control*/
