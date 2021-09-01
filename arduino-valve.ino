@@ -10,6 +10,7 @@
 #include <Adafruit_PWMServoDriver.h>
 
 #define USE_COUNT       0
+#define USE_NUMBER      1
 #define USE_FILTER_5HZ  0 /*set 0 to use 10Hz filter*/
 
 #define tab   Serial.print("\t")
@@ -24,7 +25,7 @@
 #define min_angle     0     /*Min Servo Angle*/
 #define en_servo_pin  4     /*Enable Servo*/
 #define motor_pwm     255   /*Compressor MOSFET PWM*/
-#define scale         1     /*Serial Plotter Scale*/
+#define scale         10     /*Serial Plotter Scale*/
 #define enable_servo  digitalWrite(en_servo_pin,0)
 #define disable_servo digitalWrite(en_servo_pin,1)
 
@@ -101,6 +102,7 @@ uint8_t servo[3] = {4,8,12};
 
 /*Communication*/
 bool flag = 0;
+String val = "";
 
 uint16_t d2p(uint8_t deg) {
   uint16_t pulse;
@@ -146,45 +148,84 @@ void read_input(){
   const float inc = 0.01;
   
   if (Serial.available() > 0) {
-    incByte = Serial.read();
-    if(incByte == 'a'){
-      motorOn = 1;
-      I[0] = 0; I[1] = 0; I[2] = 0;
-      for(int i=0;i<3;i++){
-        if(start_chamber[i]){
-          analogWrite(motor[i],motor_pwm);
-          enable_servo;
+    if(USE_NUMBER){
+      incByte = Serial.read();
+      
+      if (incByte != '\n') {
+        if(isDigit(incByte)||(incByte=='.')){
+          val += (char)incByte;
         }
+        else if(incByte == 'a'){
+          motorOn = 1;
+          I[0] = 0; I[1] = 0; I[2] = 0;
+          for(int i=0;i<3;i++){
+            if(start_chamber[i]){
+              analogWrite(motor[i],motor_pwm);
+              enable_servo;
+            }
+          }
+        }
+        else if(incByte == 's'){
+          motorOn = 0;
+          I[0] = 0; I[1] = 0; I[2] = 0;
+          enable_servo;
+          for(int i=0;i<3;i++){
+            analogWrite(motor[i],0);
+            set_point [i] = min_pressure;
+            pwm1.setPWM(servo[i], 0, d2p(0));  
+          }
+        }      
       }
-    }
-    else if(incByte == 's'){
-      motorOn = 0;
-      I[0] = 0; I[1] = 0; I[2] = 0;
-      enable_servo;
-      for(int i=0;i<3;i++){
-        analogWrite(motor[i],0);
-        set_point [i] = min_pressure;
-        pwm1.setPWM(servo[i], 0, d2p(0));  
+      else {
+        for(int i=0;i<3;i++){
+          set_point[i] = val.toFloat();
+          if (set_point[i] > max_pressure) set_point[i] = max_pressure;
+          if (set_point[i] < min_pressure) set_point[i] = min_pressure;  
+        }      
+        val = "";
       }
     }
     else{
-      if(motorOn){
-        switch(incByte){
-          case 'c': set_point[0] += inc; break;
-          case 'd': set_point[0] -= inc; break;          
-          case 'g': set_point[1] += inc; break;
-          case 'h': set_point[1] -= inc; break;
-          case 'y': set_point[2] += inc; break;
-          case 'x': set_point[2] -= inc; break;                                             
-        }         
+      incByte = Serial.read();
+      if(incByte == 'a'){
+        motorOn = 1;
+        I[0] = 0; I[1] = 0; I[2] = 0;
+        for(int i=0;i<3;i++){
+          if(start_chamber[i]){
+            analogWrite(motor[i],motor_pwm);
+            enable_servo;
+          }
+        }
       }
-      
-      /*set point limit*/
-      for (int i=0;i<3;i++){
-        if(set_point[i] > max_pressure) set_point[i] = max_pressure;
-        else if(set_point[i] < min_pressure) set_point[i] = min_pressure;
+      else if(incByte == 's'){
+        motorOn = 0;
+        I[0] = 0; I[1] = 0; I[2] = 0;
+        enable_servo;
+        for(int i=0;i<3;i++){
+          analogWrite(motor[i],0);
+          set_point [i] = min_pressure;
+          pwm1.setPWM(servo[i], 0, d2p(0));  
+        }
       }
-    }
+      else{
+        if(motorOn){
+          switch(incByte){
+            case 'c': set_point[0] += inc; break;
+            case 'd': set_point[0] -= inc; break;          
+            case 'g': set_point[1] += inc; break;
+            case 'h': set_point[1] -= inc; break;
+            case 'y': set_point[2] += inc; break;
+            case 'x': set_point[2] -= inc; break;                                             
+          }         
+        }
+        
+        /*set point limit*/
+        for (int i=0;i<3;i++){
+          if(set_point[i] > max_pressure) set_point[i] = max_pressure;
+          else if(set_point[i] < min_pressure) set_point[i] = min_pressure;
+        }
+      }
+    }  
   }
 }
 
@@ -224,8 +265,8 @@ void loop() {
   /*Print Data*/
   
   if(flag){
-    for(int i=0;i<3;i++){
-      Serial.print(set_point[i]*scale);  tab;
+    for(int i=0;i<1;i++){
+      Serial.print(set_point[i]*scale); tab;
       Serial.print(Pf[i]*scale); tab;
     }
     enter;
