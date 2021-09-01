@@ -16,8 +16,8 @@
 #define enter Serial.println()
 
 #define servo_freq    50    /*Servo Pulse Frequency */
-#define max_pressure  0.7   /*Max Pressure*/
-#define min_pressure  0.2   /*Min Pressure*/
+#define max_pressure  1.5   /*Max Pressure*/
+#define min_pressure  0.35   /*Min Pressure*/
 #define max_pulse     440   /*Max Servo Pulse Width*/
 #define min_pulse     100   /*Min Servo Pulse Width*/
 #define max_angle     180   /*Max Servo Angle*/
@@ -160,10 +160,11 @@ void read_input(){
     else if(incByte == 's'){
       motorOn = 0;
       I[0] = 0; I[1] = 0; I[2] = 0;
+      enable_servo;
       for(int i=0;i<3;i++){
         analogWrite(motor[i],0);
-        set_point [i] = min_pressure; 
-        disable_servo; 
+        set_point [i] = min_pressure;
+        pwm1.setPWM(servo[i], 0, d2p(0));  
       }
     }
     else{
@@ -177,6 +178,7 @@ void read_input(){
           case 'x': set_point[2] -= inc; break;                                             
         }         
       }
+      
       /*set point limit*/
       for (int i=0;i<3;i++){
         if(set_point[i] > max_pressure) set_point[i] = max_pressure;
@@ -212,7 +214,7 @@ void setup() {
   }
     
   pinMode(en_servo_pin,OUTPUT);
-  disable_servo;
+  enable_servo;
   delay(500);
 }
 
@@ -227,7 +229,6 @@ void loop() {
       Serial.print(Pf[i]*scale); tab;
     }
     enter;
-
    //Serial.print(adc[0]); enter;
   /*
     Serial.print(Pf[0]*scale);  tab;
@@ -243,7 +244,7 @@ ISR(TIMER1_COMPA_vect){
     if(start_chamber[i]){
       /*Read*/
       adc[i] = analogRead(MPX[i]);
-      P[i] = 5.47*(adc[i]/1000.0)-0.148; /*(bar)*/
+      P[i] = 5.7*(adc[i]/1000.0)-0.1926;
       Pf[i] = input[i].filter(P[i]);
   
       /*Calculate PI Control*/
@@ -264,7 +265,7 @@ ISR(TIMER1_COMPA_vect){
       }
       
       /*Execute*/
-      pwm1.setPWM(servo[i], 0, d2p(pos[i]));    
+      if(motorOn)pwm1.setPWM(servo[i], 0, d2p(pos[i]));    
     }
   }
   flag = 1;
