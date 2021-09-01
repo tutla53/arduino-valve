@@ -1,7 +1,7 @@
-/* Date: 1 August 21
+/* Date: 1 September 21
    Prototype Code
    Desc: - Control system with desired value
-         - Pressure Range: 0.2 - 0.7 bar                    
+         - Pressure Range: 0.35 - 1.5 bar                    
          - Servo controlled by I2C module 
    by: Tutla Ayatullah
 */
