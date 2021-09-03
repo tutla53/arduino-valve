@@ -10,24 +10,25 @@
 #include <Adafruit_PWMServoDriver.h>
 
 #define USE_COUNT       0
-#define USE_NUMBER      1
+#define USE_NUMBER      1 /*Pressure input method: (1) command input with number, (0) incremental input*/
 #define USE_FILTER_5HZ  0 /*set 0 to use 10Hz filter*/
 
 #define tab   Serial.print("\t")
 #define enter Serial.println()
 
-#define servo_freq    50    /*Servo Pulse Frequency */
-#define max_pressure  1.5   /*Max Pressure*/
+#define servo_freq    50     /*Servo Pulse Frequency */
+#define max_pressure  1.5    /*Max Pressure*/
 #define min_pressure  0.35   /*Min Pressure*/
-#define max_pulse     440   /*Max Servo Pulse Width*/
-#define min_pulse     100   /*Min Servo Pulse Width*/
-#define max_angle     180   /*Max Servo Angle*/
-#define min_angle     0     /*Min Servo Angle*/
-#define en_servo_pin  4     /*Enable Servo*/
-#define motor_pwm     255   /*Compressor MOSFET PWM*/
+#define max_pulse     440    /*Max Servo Pulse Width*/
+#define min_pulse     100    /*Min Servo Pulse Width*/
+#define max_angle     180    /*Max Servo Angle*/
+#define min_angle     0      /*Min Servo Angle*/
+#define en_servo_pin  4      /*Enable Servo*/
+#define motor_pwm     255    /*Compressor MOSFET PWM*/
 #define scale         10     /*Serial Plotter Scale*/
 #define enable_servo  digitalWrite(en_servo_pin,0)
 #define disable_servo digitalWrite(en_servo_pin,1)
+const bool    start_chamber[3]= {1,0,0};
 
 class Butterworth {
   /* 3rd order low-pass butterworth filter */
@@ -46,7 +47,7 @@ class Butterworth {
     }
     float filter(float y) {
       y_in[0]  = y;
-      y_out[0]  = (a[0] * y_out[1] + a[1] * y_out[2] + a[2] * y_out[3]);
+      y_out[0]  = -(a[0] * y_out[1] + a[1] * y_out[2] + a[2] * y_out[3]);
       y_out[0] += (b[0] * y_in[0]  + b[1] * y_in[1]  + b[2] * y_in[2] + b[3] * y_in[3]);
 
       /*Index Shifting*/
@@ -77,15 +78,14 @@ Adafruit_PWMServoDriver pwm1 = Adafruit_PWMServoDriver(0x40);
 
 /*PID*/                                 /*3*/   /*2*/    /*1*/
 const float Kp[3] = {230,230,230};     /*230*/ /*230*/  /*250*/
-const float Ki[3] = {4.0,4.0,4.0};    /*4.0*/ /*3.75*/ /*3.75*/
-const float Kd[3] = {375,375,375};   /*375*/ /*350*/  /*400*/
+const float Ki[3] = {1,4.0,4.0};    /*4.0*/ /*3.75*/ /*3.75*/
+const float Kd[3] = {0,0,0};   /*375*/ /*350*/  /*400*/
 static float I[3] = {0,0,0}; 
 float   set_point[3] = {min_pressure,min_pressure,min_pressure};
 float   err[3]    = {0,0,0};
 float   pre_err[3]= {0,0,0};
 float   sig[3]    = {0,0,0};
 uint8_t pos[3]    = {0,0,0};
-const bool    start_chamber[3]= {1,1,1};
 
 /*Sensor*/
 uint16_t adc[3] = {0,0,0};
@@ -102,7 +102,6 @@ uint8_t servo[3] = {4,8,12};
 
 /*Communication*/
 bool flag = 0;
-String val = "";
 
 uint16_t d2p(uint8_t deg) {
   uint16_t pulse;
@@ -116,11 +115,11 @@ void FilterInit(){
 #if USE_FILTER_5HZ
   /*Filter coefficient with wc = 5 Hz*/
   const float b[4] = {2.8982*pow(10,-3), 8.6946*pow(10,-3), 8.6946*pow(10,-3),  2.8982*pow(10,-3)};
-  const float a[3] = {2.37409, -1.92936, 0.53208};
+  const float a[3] = {-2.37409, 1.92936, -0.53208};
 #else
   /*Filter coefficient with wc = 10 Hz*/
   const float b[4] = {0.018099, 0.054297, 0.054297, 0.018099};
-  const float a[3] = {1.76004, -1.18289, 0.27806};
+  const float a[3] = {-1.76004, 1.18289, -0.27806};
 #endif
 
   for (int i =0;i<3;i++){
@@ -150,39 +149,32 @@ void read_input(){
   if (Serial.available() > 0) {
     if(USE_NUMBER){
       incByte = Serial.read();
-      
-      if (incByte != '\n') {
-        if(isDigit(incByte)||(incByte=='.')){
-          val += (char)incByte;
-        }
-        else if(incByte == 'a'){
-          motorOn = 1;
-          I[0] = 0; I[1] = 0; I[2] = 0;
-          for(int i=0;i<3;i++){
-            if(start_chamber[i]){
-              analogWrite(motor[i],motor_pwm);
-              enable_servo;
-            }
-          }
-        }
-        else if(incByte == 's'){
-          motorOn = 0;
-          I[0] = 0; I[1] = 0; I[2] = 0;
-          enable_servo;
-          for(int i=0;i<3;i++){
-            analogWrite(motor[i],0);
-            set_point [i] = min_pressure;
-            pwm1.setPWM(servo[i], 0, d2p(0));  
-          }
-        }      
-      }
-      else {
+      if(incByte == 'a'){
+        motorOn = 1;
+        I[0] = 0; I[1] = 0; I[2] = 0;
         for(int i=0;i<3;i++){
-          set_point[i] = val.toFloat();
+          if(start_chamber[i]){
+            analogWrite(motor[i],motor_pwm);
+            enable_servo;
+          }
+        }
+      }
+      else if(incByte == 's'){
+        motorOn = 0;
+        I[0] = 0; I[1] = 0; I[2] = 0;
+        enable_servo;
+        for(int i=0;i<3;i++){
+          analogWrite(motor[i],0);
+          set_point [i] = min_pressure;
+          pwm1.setPWM(servo[i], 0, d2p(0));  
+        }
+      }
+      else if((incByte == 'p') && motorOn){
+        for(int i=0;i<3;i++){
+          set_point[i] = Serial.parseFloat();
           if (set_point[i] > max_pressure) set_point[i] = max_pressure;
           if (set_point[i] < min_pressure) set_point[i] = min_pressure;  
         }      
-        val = "";
       }
     }
     else{
@@ -264,17 +256,15 @@ void loop() {
 
   /*Print Data*/
   
-  if(flag){
-    for(int i=0;i<1;i++){
-      Serial.print(set_point[i]*scale); tab;
-      Serial.print(Pf[i]*scale); tab;
+  if(flag && motorOn){
+    for(int i=0;i<3;i++){
+      if(start_chamber[i]){
+        Serial.print(set_point[i]*scale); tab;
+        Serial.print(Pf[i]*scale); tab;
+      }
     }
-    enter;
-   //Serial.print(adc[0]); enter;
-  /*
-    Serial.print(Pf[0]*scale);  tab;
-    Serial.print(Pf[1]*scale);  enter;
-  */
+    Serial.print(max_pressure*scale); tab;
+    Serial.print(min_pressure*scale); enter;
     flag = 0;
   }
 }
@@ -285,23 +275,24 @@ ISR(TIMER1_COMPA_vect){
     if(start_chamber[i]){
       /*Read*/
       adc[i] = analogRead(MPX[i]);
-      P[i] = 5.7*(adc[i]/1000.0)-0.1926;
+      P[i] = 5.28*(adc[i]/1000.0)-0.175;
       Pf[i] = input[i].filter(P[i]);
   
       /*Calculate PI Control*/
       err[i] = (set_point[i] - Pf[i]);
       I[i] += err[i];
       sig[i] = (Kp[i]*err[i])+(Ki[i]*I[i])+(Kd[i]*(err[i]-pre_err[i]));
-      pos[i] = output[i].filter(sig[i]);
+      //pos[i] = output[i].filter(sig[i]);
+      pos[i] = sig[i];
       pre_err[i] = err[i];
   
       /*Saturation*/
-      if (pos[i] > max_angle) {
-         pos[i] = 180;
+      if(pos[i] > max_angle) {
+        pos[i] = max_angle;
         I[i] -= err[i];
       }
       else if (pos[i] < min_angle) {
-         pos[i] = 0;
+        pos[i] = min_angle;
         I[i] -= err[i];
       }
       
