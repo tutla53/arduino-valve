@@ -1,7 +1,7 @@
 /* Date: 1 September 21
    Prototype Code
    Desc: - Control system with desired value
-         - Pressure Range: 0.35 - 1.5 bar                    
+         - Pressure Range: 0 - 1.5 bar                    
          - Servo controlled by I2C module 
    by: Tutla Ayatullah
 */
@@ -18,14 +18,14 @@
 
 #define servo_freq    50     /*Servo Pulse Frequency */
 #define max_pressure  1.5    /*Max Pressure*/
-#define min_pressure  0.35   /*Min Pressure*/
+#define min_pressure  0.2      /*Min Pressure*/
 #define max_pulse     440    /*Max Servo Pulse Width*/
 #define min_pulse     100    /*Min Servo Pulse Width*/
 #define max_angle     180    /*Max Servo Angle*/
 #define min_angle     0      /*Min Servo Angle*/
 #define en_servo_pin  4      /*Enable Servo*/
 #define motor_pwm     255    /*Compressor MOSFET PWM*/
-#define scale         10     /*Serial Plotter Scale*/
+#define scale         10    /*Serial Plotter Scale*/
 #define enable_servo  digitalWrite(en_servo_pin,0)
 #define disable_servo digitalWrite(en_servo_pin,1)
 const bool    start_chamber[3]= {1,0,0};
@@ -63,7 +63,7 @@ class Butterworth {
     }
 };
 
-Butterworth input[3],output[3];
+Butterworth input[3],output[3],ER[3];
 Adafruit_PWMServoDriver pwm1 = Adafruit_PWMServoDriver(0x40);
 
 /*Global Variable*/
@@ -77,15 +77,16 @@ Adafruit_PWMServoDriver pwm1 = Adafruit_PWMServoDriver(0x40);
 #endif
 
 /*PID*/                                 /*3*/   /*2*/    /*1*/
-const float Kp[3] = {230,230,230};     /*230*/ /*230*/  /*250*/
-const float Ki[3] = {1,4.0,4.0};    /*4.0*/ /*3.75*/ /*3.75*/
+const float Kp[3] = {20,230,230};     /*230*/ /*230*/  /*250*/
+const float Ki[3] = {0.8,4.0,4.0};    /*4.0*/ /*3.75*/ /*3.75*/
 const float Kd[3] = {0,0,0};   /*375*/ /*350*/  /*400*/
 static float I[3] = {0,0,0}; 
 float   set_point[3] = {min_pressure,min_pressure,min_pressure};
-float   err[3]    = {0,0,0};
-float   pre_err[3]= {0,0,0};
-float   sig[3]    = {0,0,0};
-uint8_t pos[3]    = {0,0,0};
+float   err[3]      = {0,0,0}, err_f[3] ={0,0,0};
+float   pre_err[3]  = {0,0,0};
+float   sig[3]      = {0,0,0};
+uint8_t pos[3]      = {180,180,180};
+uint8_t pos_inv[3]  = {0,0,0};
 
 /*Sensor*/
 uint16_t adc[3] = {0,0,0};
@@ -120,11 +121,19 @@ void FilterInit(){
   /*Filter coefficient with wc = 10 Hz*/
   const float b[4] = {0.018099, 0.054297, 0.054297, 0.018099};
   const float a[3] = {-1.76004, 1.18289, -0.27806};
+
+  const float b_f[4] = {0.0004, 0.0012, 0.0012,  0.0004}; /*2.5 Hz*/
+  const float a_f[3] = {-2.6862, 2.4197, -0.7302};
+  
+    /*Filter coefficient with wc = 5 Hz*/
+  const float b_5[4] = {2.8982*pow(10,-3), 8.6946*pow(10,-3), 8.6946*pow(10,-3),  2.8982*pow(10,-3)};
+  const float a_5[3] = {-2.37409, 1.92936, -0.53208};
 #endif
 
   for (int i =0;i<3;i++){
-    input[i].set_coefficient(a,b);
-    output[i].set_coefficient(a,b);
+    input[i].set_coefficient(a_5,b_5);
+    output[i].set_coefficient(a_f,b_f);
+    ER[i].set_coefficient(a,b);
   }
 }
 
@@ -166,7 +175,7 @@ void read_input(){
         for(int i=0;i<3;i++){
           analogWrite(motor[i],0);
           set_point [i] = min_pressure;
-          pwm1.setPWM(servo[i], 0, d2p(0));  
+          pwm1.setPWM(servo[i], 0, d2p(180));  
         }
       }
       else if((incByte == 'p') && motorOn){
@@ -196,7 +205,7 @@ void read_input(){
         for(int i=0;i<3;i++){
           analogWrite(motor[i],0);
           set_point [i] = min_pressure;
-          pwm1.setPWM(servo[i], 0, d2p(0));  
+          pwm1.setPWM(servo[i], 0, d2p(180));  
         }
       }
       else{
@@ -235,7 +244,7 @@ void setup() {
   
   for(int i = 0;i<3;i++){
     if(start_chamber[i]){
-      pwm1.setPWM(servo[i], 0, d2p(pos[i]));
+      pwm1.setPWM(servo[i], 0, d2p(180));
           
       /*Sensor*/  
       pinMode(MPX[i], INPUT);
@@ -256,15 +265,16 @@ void loop() {
 
   /*Print Data*/
   
-  if(flag && motorOn){
+  if(flag){
     for(int i=0;i<3;i++){
       if(start_chamber[i]){
         Serial.print(set_point[i]*scale); tab;
         Serial.print(Pf[i]*scale); tab;
+        //Serial.print((Kp[i]*err[i])); tab;
+        //Serial.print((Ki[i]*I[i])); tab;
       }
     }
-    Serial.print(max_pressure*scale); tab;
-    Serial.print(min_pressure*scale); enter;
+    enter;
     flag = 0;
   }
 }
@@ -280,24 +290,26 @@ ISR(TIMER1_COMPA_vect){
   
       /*Calculate PI Control*/
       err[i] = (set_point[i] - Pf[i]);
+      //err[i] = ER[i].filter(err_f[i]);
       I[i] += err[i];
       sig[i] = (Kp[i]*err[i])+(Ki[i]*I[i])+(Kd[i]*(err[i]-pre_err[i]));
-      //pos[i] = output[i].filter(sig[i]);
-      pos[i] = sig[i];
+      pos[i] = output[i].filter(sig[i]);
+      //pos[i]= sig[i];
+      pos_inv[i] = map(pos[i],0,180,180,0);
       pre_err[i] = err[i];
   
       /*Saturation*/
-      if(pos[i] > max_angle) {
-        pos[i] = max_angle;
+      if(pos_inv[i] > max_angle) {
+        pos_inv[i] = max_angle;
         I[i] -= err[i];
       }
-      else if (pos[i] < min_angle) {
-        pos[i] = min_angle;
+      else if (pos_inv[i] < min_angle) {
+        pos_inv[i] = min_angle;
         I[i] -= err[i];
       }
       
-      /*Execute*/
-      if(motorOn)pwm1.setPWM(servo[i], 0, d2p(pos[i]));    
+      /*Execute*/      
+      if(motorOn)pwm1.setPWM(servo[i], 0, d2p(pos_inv[i]));    
     }
   }
   flag = 1;
