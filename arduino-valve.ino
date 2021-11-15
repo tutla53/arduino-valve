@@ -25,10 +25,10 @@
 #define min_angle     0      /*Min Servo Angle*/
 #define en_servo_pin  4      /*Enable Servo*/
 #define motor_pwm     255    /*Compressor MOSFET PWM*/
-#define scale         1      /*Serial Plotter Scale*/
+#define scale         10      /*Serial Plotter Scale*/
 #define enable_servo  digitalWrite(en_servo_pin,0)
 #define disable_servo digitalWrite(en_servo_pin,1)
-const bool    start_chamber[3]= {1,0,0};
+const bool    start_chamber[3]= {1,1,1};
 const float   dt = 0.01;
 
 class Butterworth {
@@ -166,7 +166,6 @@ void read_input(){
       incByte = Serial.read();
       if(incByte == 'a'){
         motorOn = 1;
-        I[0] = 0; I[1] = 0; I[2] = 0;
         for(int i=0;i<3;i++){
           if(start_chamber[i]){
             set_point[i] = min_pressure;
@@ -177,7 +176,6 @@ void read_input(){
       }
       else if(incByte == 's'){
         motorOn = 0;
-        I[0] = 0; I[1] = 0; I[2] = 0;
         enable_servo;
         for(int i=0;i<3;i++){
           analogWrite(motor[i],0);
@@ -199,7 +197,6 @@ void read_input(){
       incByte = Serial.read();
       if(incByte == 'a'){
         motorOn = 1;
-        I[0] = 0; I[1] = 0; I[2] = 0;
         for(int i=0;i<3;i++){
           if(start_chamber[i]){
             analogWrite(motor[i],motor_pwm);
